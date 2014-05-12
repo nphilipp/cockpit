@@ -146,10 +146,14 @@ function NetworkManagerModel(address) {
             if (props.Ip6Config)  obj.Ip6Config = get_object(props.Ip6Config);
             if (props.State)      obj.State = device_state_to_text(props.State);
             if (props.HwAddress)  obj.HwAddress = props.HwAddress;
+            if (props.AvailableConnections)  obj.AvailableConnections = props.AvailableConnections.map(get_object);
         } else if (iface == "org.freedesktop.NetworkManager.IP4Config") {
             if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip4_address);
         } else if (iface == "org.freedesktop.NetworkManager.IP6Config") {
             if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip6_address);
+        } else if (iface == "org.freedesktop.NetworkManager.Settings.Connection") {
+            if (props.Unsaved)    obj.Unsaved = props.Unsaved;
+            if (props.Settings)   obj.Settings = props.Settings;
         }
         objects[path] = obj;
         export_model();
@@ -188,6 +192,14 @@ function NetworkManagerModel(address) {
         }
     }
 
+    function refresh_settings(iface) {
+        iface.call('GetSettings', function (error, result) {
+            if (result)
+                model_properties_changed(iface.getObject().objectPath, iface._iface_name,
+                                         { Settings: result });
+        });
+    }
+
     function object_added (event, object) {
         for (var iface in object._ifaces)
             interface_added (event, object, object._ifaces[iface]);
@@ -201,6 +213,8 @@ function NetworkManagerModel(address) {
     function interface_added (event, object, iface) {
         var path = object.objectPath;
         model_properties_changed (path, iface._iface_name, iface);
+        if (iface._iface_name == "org.freedesktop.NetworkManager.Settings.Connection")
+            refresh_settings(iface);
     }
 
     function interface_removed (event, object, iface) {
@@ -213,6 +227,8 @@ function NetworkManagerModel(address) {
             var path = iface.getObject().objectPath;
             model_properties_changed (path, iface._iface_name, args[0]);
         } else if (signal == "Updated") {
+            refresh_settings(iface);
+
             /* HACK
              *
              * Some versions of NetworkManager don't always send
@@ -238,6 +254,14 @@ function NetworkManagerModel(address) {
         $(client).off("interfaceRemoved", interface_removed);
         $(client).off("signalEmitted", signal_emitted);
         client.release();
+    };
+
+    self.find_device = function find_device(iface) {
+        for (var i = 0; i < self.devices.length; i++) {
+            if (self.devices[i].Interface == iface)
+                return self.devices[i];
+        }
+        return null;
     };
 
     client.getObjectsFrom("/").forEach(function (obj) { object_added (null, obj); });
@@ -300,12 +324,15 @@ PageNetworking.prototype = {
                 });
             }
 
-            tbody.append(
-                $('<tr>').append(
-                    $('<td>').text(dev.Interface),
-                    $('<td>').text(addresses.join(", ")),
-                    $('<td>').text(dev.HwAddress),
-                    $('<td>').text(dev.State)));
+            tbody.append($('<tr>').
+                         append($('<td>').text(dev.Interface),
+                                $('<td>').text(addresses.join(", ")),
+                                $('<td>').text(dev.HwAddress),
+                                $('<td>').text(dev.State)).
+                         click(function () { cockpit_go_down ({ page: 'network-interface',
+                                                                dev: dev.Interface
+                                                              });
+                                           }));
         });
     }
 
@@ -316,3 +343,48 @@ function PageNetworking() {
 }
 
 cockpit_pages.push(new PageNetworking());
+
+PageNetworkInterface.prototype = {
+    _init: function () {
+        this.id = "network-interface";
+    },
+
+    getTitle: function() {
+        return C_("page-title", "Network Interface");
+    },
+
+    enter: function () {
+        var self = this;
+
+        self.address = cockpit_get_page_param('machine', 'server') || "localhost";
+        self.model = new NetworkManagerModel(self.address);
+        $(self.model).on('changed.network-interface', $.proxy(self, "update"));
+        self.update();
+    },
+
+    show: function() {
+    },
+
+    leave: function() {
+        $(this.model).off(".network-interface");
+        this.model.destroy();
+        this.model = null;
+    },
+
+    update: function() {
+        var self = this;
+
+        var dev = self.model.find_device(cockpit_get_page_param('dev'));
+        if (dev)
+            console.log(dev.AvailableConnections);
+        else
+            console.log("nope");
+    }
+
+};
+
+function PageNetworkInterface() {
+    this._init();
+}
+
+cockpit_pages.push(new PageNetworkInterface());
