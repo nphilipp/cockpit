@@ -155,6 +155,15 @@ function NetworkManagerModel(address) {
         } else if (iface == "org.freedesktop.NetworkManager.Settings.Connection") {
             if (props.Unsaved)    obj.Unsaved = props.Unsaved;
             if (props.Settings)   obj.Settings = props.Settings;
+            if (!obj.update) {
+                obj.update = function (settings) {
+                    client.get(path, iface).call('Update', settings,
+                                                 function (error) {
+                                                     if (error)
+                                                         cockpit_show_unexpected_error(error);
+                                                 });
+                };
+            }
         }
         objects[path] = obj;
         export_model();
@@ -414,30 +423,116 @@ PageNetworkInterface.prototype = {
                                  $('<td>').text(dev.IdModel),
                                  $('<td>').text(dev.HwAddress))));
 
-        function render_ipv4(ipv4) {
-            return [ $('<div>').
-                     append($('<span>').
-                            append($('<span style="font-weight:bold">').text("IPv4"),
-                                   $('<span style="float:right">').
-                                   append(cockpit_select_btn(function () { },
-                                                             [ { title: _("DHCP"), choice: 'auto', is_default: true },
-                                                               { title: _("Manual"), choice: 'manual' }
-                                                             ]),
-                                          cockpit_select_btn(function () { },
-                                                             [ { title: _("Add"), choice: 'auto', is_default: true }
-                                                             ]))))
-                   ];
-        }
-
         function render_connection(con) {
+
+            var settings = con.Settings;
+
+            function update_settings() {
+                console.log(JSON.stringify(settings));
+                con.update(settings);
+            }
+
+            function checkbox(first, second, def) {
+                if (settings[first] === undefined)
+                    settings[first] = { };
+                if (settings[first][second] === undefined)
+                    settings[first][second] = def;
+                return ($('<input type="checkbox">').
+                        prop('checked', settings[first][second]).
+                        change(function (event) {
+                            settings[first][second] = $(event.target).prop('checked');
+                            update_settings ();
+                        }));
+            }
+
+            function textbox(first, second, def) {
+                if (settings[first] === undefined)
+                    settings[first] = { };
+                if (settings[first][second] === undefined)
+                    settings[first][second] = def;
+                return ($('<input>').
+                        val(settings[first][second]).
+                        change(function (event) {
+                            settings[first][second] = $(event.target).val();
+                            update_settings ();
+                        }));
+            }
+
+            function choicebox(first, second, def) {
+                if (settings[first] === undefined)
+                    settings[first] = { };
+                if (settings[first][second] === undefined)
+                    settings[first][second] = def;
+                return ($('<input>').
+                        val(settings[first][second]).
+                        change(function (event) {
+                            settings[first][second] = $(event.target).val();
+                            update_settings ();
+                        }));
+            }
+
+            function render_connection_settings() {
+                return ($('<table class="cockpit-form-table">').
+                        append($('<tr>').
+                               append($('<td>').text(_("Connect automatically")),
+                                      $('<td>').append(checkbox("connection", "autoconnect", true)))));
+            }
+
+            function render_ipv4_settings() {
+                return ($('<table class="cockpit-form-table">').
+                        append($('<tr>').
+                               append($('<td style="font-weight:bold">').text(_("IPv4")),
+                                      $('<td>').append(choicebox("ipv4", "method",
+                                                                 { 'auto': _("Automatic (DHCP)"),
+                                                                   'link-local': _("Link local"),
+                                                                   'manual': _("Manual"),
+                                                                   'shared': _("Shared"),
+                                                                   'disabled': _("Disabled")
+                                                                 }, 'auto')))));
+            }
+
+            function render_ipv6_settings(ipv4) {
+                var method_btn =
+                    cockpit_select_btn(function (method) { console.log(method); },
+                                       [ { title: _("Automatic"), choice: 'auto', is_default: true },
+                                         { title: _("Manual"), choice: 'manual' }
+                                       ]);
+
+                var add_btn =
+                    cockpit_action_btn(function (action) { console.log(action); },
+                                       [ { title: _("Add IPv6 Address"), action: 'addip',
+                                           is_default: true
+                                         },
+                                         { title: _("Add DNS nameserver"), action: 'addns'
+                                         },
+                                         { title: _("Add DNS search domain"), action: 'addsd'
+                                         }
+                                       ]);
+
+                return [ $('<table>').
+                         append($('<tr>').
+                                append($('<td width="100px" style="font-weight:bold">').text("IPv6"),
+                                       $('<td width="100px">').append(method_btn),
+                                       $('<td>').append(add_btn))),
+                         $('<div>').text("Yo"),
+                         $('<div>').text("Yip")
+                       ];
+            }
+
+
             if (con && con.Settings && con.Settings.connection)
                 return ($('<div class="panel panel-default">').
                         append($('<div class="panel-heading">').
                                text(con.Settings.connection.id),
                                $('<div class="panel-body">').
-                               append($('<div>').
-                                      text(JSON.stringify(con.Settings)),
-                                      render_ipv4(con.Settings.ipv4))));
+                               append(render_connection_settings(con.Settings.connection),
+                                      $('<hr>'),
+                                      con.Settings.ipv4? render_ipv4_settings() : null,
+                                      $('<hr>'),
+                                      render_ipv6_settings(con.Settings.ipv6),
+                                      $('<hr>'),
+                                      $('<div>').text(JSON.stringify(con.Settings)))));
+
             else
                 return [ ];
         }
