@@ -38,7 +38,7 @@
 function NetworkManagerModel(address) {
     var self = this;
 
-    var client = $cockpit.dbus(this.address,
+    var client = $cockpit.dbus(address,
                                { 'service': "org.freedesktop.NetworkManager",
                                  'object-paths': [ "/org/freedesktop/NetworkManager" ],
                                  'protocol': "dbus-json1"
