@@ -150,6 +150,7 @@ function NetworkManagerModel(address) {
             if (props.Udi)        refresh_udev (path, props.Udi);
             if (props.IdVendor)   obj.IdVendor = props.IdVendor;
             if (props.IdModel)    obj.IdModel = props.IdModel;
+            if (props.Driver)     obj.Driver = props.Driver;
         } else if (iface == "org.freedesktop.NetworkManager.IP4Config") {
             if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip4_address);
         } else if (iface == "org.freedesktop.NetworkManager.IP6Config") {
@@ -399,11 +400,13 @@ PageNetworkInterface.prototype = {
     update: function() {
         var self = this;
 
+        $('#network-interface-hw .panel-body').text("");
+
         var dev = self.model.find_device(cockpit_get_page_param('dev'));
-        if (dev)
-            console.log(dev.AvailableConnections);
-        else
-            console.log("nope");
+        if (!dev)
+            return;
+
+        $('#network-interface-hw .panel-body').text(dev.Driver + ", " + dev.IdVendor + ", " + dev.IdModel);
     }
 
 };
