@@ -147,6 +147,9 @@ function NetworkManagerModel(address) {
             if (props.State)      obj.State = device_state_to_text(props.State);
             if (props.HwAddress)  obj.HwAddress = props.HwAddress;
             if (props.AvailableConnections)  obj.AvailableConnections = props.AvailableConnections.map(get_object);
+            if (props.Udi)        refresh_udev (path, props.Udi);
+            if (props.IdVendor)   obj.IdVendor = props.IdVendor;
+            if (props.IdModel)    obj.IdModel = props.IdModel;
         } else if (iface == "org.freedesktop.NetworkManager.IP4Config") {
             if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip4_address);
         } else if (iface == "org.freedesktop.NetworkManager.IP6Config") {
@@ -198,6 +201,28 @@ function NetworkManagerModel(address) {
                 model_properties_changed(iface.getObject().objectPath, iface._iface_name,
                                          { Settings: result });
         });
+    }
+
+    function refresh_udev(path, sysfs_path) {
+        $cockpit.spawn(["/usr/bin/udevadm", "info", sysfs_path], { host: address }).
+            done(function(res) {
+                var props = { };
+                function snarf_prop(line, env, prop) {
+                    var prefix = "E: " + env + "=";
+                    if (line.startsWith(prefix)) {
+                        props[prop] = line.substr(prefix.length);
+                    }
+                }
+                res.split('\n').forEach(function(line) {
+                    snarf_prop(line, "ID_MODEL_FROM_DATABASE", "IdModel");
+                    snarf_prop(line, "ID_VENDOR_FROM_DATABASE", "IdVendor");
+                });
+                console.log(props);
+                model_properties_changed(path, "org.freedesktop.NetworkManager.Device", props);
+            }).
+            fail(function(ex) {
+                console.warn(ex);
+            });
     }
 
     function object_added (event, object) {
