@@ -51,12 +51,9 @@ function NetworkManagerModel(address) {
     function get_object(val) {
         if (val == "/")
             return null;
-        else if (objects[val])
-            return objects[val];
-        else {
-            console.log("ERROR", val, "undefined");
-            return undefined;
-        }
+        if (!objects[val])
+            objects[val] = { };
+        return objects[val];
     }
 
     function toDec(n) {
@@ -175,7 +172,7 @@ function NetworkManagerModel(address) {
 
         if (!changed_pending) {
             changed_pending = true;
-            setTimeout(function () { changed_pending = false; console.log(objects); $(self).trigger('changed'); }, 0);
+            setTimeout(function () { changed_pending = false; $(self).trigger('changed'); }, 0);
         }
     }
 
@@ -400,13 +397,54 @@ PageNetworkInterface.prototype = {
     update: function() {
         var self = this;
 
-        $('#network-interface-hw .panel-body').text("");
+        var $hw = $('#network-interface-hw');
+        var $connections = $('#network-interface-connections');
+
+        $hw.empty();
+        $connections.empty();
 
         var dev = self.model.find_device(cockpit_get_page_param('dev'));
         if (!dev)
             return;
 
-        $('#network-interface-hw .panel-body').text(dev.Driver + ", " + dev.IdVendor + ", " + dev.IdModel);
+        $hw.append($('<table class="table">').
+                   append($('<tr>').
+                          append($('<td>').text(dev.Driver),
+                                 $('<td>').text(dev.IdVendor),
+                                 $('<td>').text(dev.IdModel),
+                                 $('<td>').text(dev.HwAddress))));
+
+        function render_ipv4(ipv4) {
+            return [ $('<div>').
+                     append($('<span>').
+                            append($('<span style="font-weight:bold">').text("IPv4"),
+                                   $('<span style="float:right">').
+                                   append(cockpit_select_btn(function () { },
+                                                             [ { title: _("DHCP"), choice: 'auto', is_default: true },
+                                                               { title: _("Manual"), choice: 'manual' }
+                                                             ]),
+                                          cockpit_select_btn(function () { },
+                                                             [ { title: _("Add"), choice: 'auto', is_default: true }
+                                                             ]))))
+                   ];
+        }
+
+        function render_connection(con) {
+            if (con && con.Settings && con.Settings.connection)
+                return ($('<div class="panel panel-default">').
+                        append($('<div class="panel-heading">').
+                               text(con.Settings.connection.id),
+                               $('<div class="panel-body">').
+                               append($('<div>').
+                                      text(JSON.stringify(con.Settings)),
+                                      render_ipv4(con.Settings.ipv4))));
+            else
+                return [ ];
+        }
+
+        (dev.AvailableConnections || []).forEach(function (con) {
+            $connections.append(render_connection(con));
+        });
     }
 
 };
