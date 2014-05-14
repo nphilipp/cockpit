@@ -157,11 +157,17 @@ function NetworkManagerModel(address) {
             if (props.Settings)   obj.Settings = props.Settings;
             if (!obj.update) {
                 obj.update = function (settings) {
+                    var dfd = new $.Deferred();
                     client.get(path, iface).call('Update', settings,
                                                  function (error) {
-                                                     if (error)
+                                                     if (error) {
+                                                         export_model();
                                                          cockpit_show_unexpected_error(error);
+                                                         dfd.reject(error);
+                                                     } else
+                                                         dfd.resolve();
                                                  });
+                    return dfd.promise();
                 };
             }
         }
@@ -379,6 +385,7 @@ cockpit_pages.push(new PageNetworking());
 PageNetworkInterface.prototype = {
     _init: function () {
         this.id = "network-interface";
+        this.connection_mods = { };
     },
 
     getTitle: function() {
@@ -391,6 +398,7 @@ PageNetworkInterface.prototype = {
         self.address = cockpit_get_page_param('machine', 'server') || "localhost";
         self.model = new NetworkManagerModel(self.address);
         $(self.model).on('changed.network-interface', $.proxy(self, "update"));
+
         self.update();
     },
 
@@ -425,113 +433,130 @@ PageNetworkInterface.prototype = {
 
         function render_connection(con) {
 
-            var settings = con.Settings;
+            if (!con || !con.Settings)
+                return [ ];
 
-            function update_settings() {
-                console.log(JSON.stringify(settings));
-                con.update(settings);
+            var mods = self.connection_mods[con.Settings.connection.uuid];
+            if (!mods) {
+                mods = { };
+                self.connection_mods[con.Settings.connection.uuid] = mods;
             }
 
-            function checkbox(first, second, def) {
+            var settings = $.extend(true, {}, con.Settings, mods);
+
+            var mod_box;
+
+            function update_settings(first, second, val) {
+                mods[first] = mods[first] || { };
+                mods[first][second] = val;
+                settings = $.extend(true, {}, con.Settings, mods);
+                $(mod_box).text(JSON.stringify(mods));
+            }
+
+            function apply_settings() {
+                console.log(JSON.stringify(settings));
+                con.update(settings).
+                    done(function () {
+                        mods = { };
+                        self.connection_mods[con.Settings.connection.uuid] = mods;
+                    });
+            }
+
+            function set_default(first, second, def) {
                 if (settings[first] === undefined)
                     settings[first] = { };
                 if (settings[first][second] === undefined)
                     settings[first][second] = def;
+            }
+
+            function checkbox(first, second, def) {
+                set_default(first, second, def);
                 return ($('<input type="checkbox">').
                         prop('checked', settings[first][second]).
                         change(function (event) {
-                            settings[first][second] = $(event.target).prop('checked');
-                            update_settings ();
+                            update_settings(first, second, $(event.target).prop('checked'));
                         }));
             }
 
             function textbox(first, second, def) {
-                if (settings[first] === undefined)
-                    settings[first] = { };
-                if (settings[first][second] === undefined)
-                    settings[first][second] = def;
+                set_default(first, second, def);
                 return ($('<input>').
                         val(settings[first][second]).
                         change(function (event) {
-                            settings[first][second] = $(event.target).val();
-                            update_settings ();
+                            update_settings(first, second, $(event.target).val());
                         }));
             }
 
-            function choicebox(first, second, def) {
-                if (settings[first] === undefined)
-                    settings[first] = { };
-                if (settings[first][second] === undefined)
-                    settings[first][second] = def;
-                return ($('<input>').
-                        val(settings[first][second]).
-                        change(function (event) {
-                            settings[first][second] = $(event.target).val();
-                            update_settings ();
-                        }));
+            function choicebox(first, second, choices, def) {
+                set_default(first, second, def);
+                var btn = cockpit_select_btn(function (choice) {
+                                                 update_settings(first, second, choice);
+                                             },
+                                             choices);
+                cockpit_select_btn_select(btn, settings[first][second]);
+                return btn;
             }
 
             function render_connection_settings() {
                 return ($('<table class="cockpit-form-table">').
                         append($('<tr>').
+                               append($('<td class="header">').text(_("Connection"))),
+                               $('<tr>').
                                append($('<td>').text(_("Connect automatically")),
                                       $('<td>').append(checkbox("connection", "autoconnect", true)))));
             }
 
             function render_ipv4_settings() {
+                var method_choices = [
+                    { choice: 'auto',         title: _("Automatic (DHCP)") },
+                    { choice : 'link-local',  title: _("Link local") },
+                    { choice: 'manual',       title: _("Manual") },
+                    { choice: 'shared',       title: _("Shared") },
+                    { choice: 'disabled',     title: _("Disabled") }
+                ];
+
                 return ($('<table class="cockpit-form-table">').
                         append($('<tr>').
-                               append($('<td style="font-weight:bold">').text(_("IPv4")),
-                                      $('<td>').append(choicebox("ipv4", "method",
-                                                                 { 'auto': _("Automatic (DHCP)"),
-                                                                   'link-local': _("Link local"),
-                                                                   'manual': _("Manual"),
-                                                                   'shared': _("Shared"),
-                                                                   'disabled': _("Disabled")
-                                                                 }, 'auto')))));
+                               append($('<td class="header">').text(_("IPv4"))),
+                               $('<tr>').
+                               append($('<td>').text(_("Method")),
+                                      $('<td>').append(choicebox("ipv4", "method", method_choices, "disabled")))));
             }
 
             function render_ipv6_settings(ipv4) {
-                var method_btn =
-                    cockpit_select_btn(function (method) { console.log(method); },
-                                       [ { title: _("Automatic"), choice: 'auto', is_default: true },
-                                         { title: _("Manual"), choice: 'manual' }
-                                       ]);
+                var method_choices = [
+                    { choice: 'auto',         title: _("Automatic") },
+                    { choice: 'dhcp',         title: _("Automatic (DHCP only)") },
+                    { choice : 'link-local',  title: _("Link local") },
+                    { choice: 'manual',       title: _("Manual") },
+                    { choice: 'ignore',       title: _("Ignore") }
+                ];
 
-                var add_btn =
-                    cockpit_action_btn(function (action) { console.log(action); },
-                                       [ { title: _("Add IPv6 Address"), action: 'addip',
-                                           is_default: true
-                                         },
-                                         { title: _("Add DNS nameserver"), action: 'addns'
-                                         },
-                                         { title: _("Add DNS search domain"), action: 'addsd'
-                                         }
-                                       ]);
-
-                return [ $('<table>').
-                         append($('<tr>').
-                                append($('<td width="100px" style="font-weight:bold">').text("IPv6"),
-                                       $('<td width="100px">').append(method_btn),
-                                       $('<td>').append(add_btn))),
-                         $('<div>').text("Yo"),
-                         $('<div>').text("Yip")
-                       ];
+                return ($('<table class="cockpit-form-table">').
+                        append($('<tr>').
+                               append($('<td class="header">').text(_("IPv6"))),
+                               $('<tr>').
+                               append($('<td>').text(_("Method")),
+                                      $('<td>').append(choicebox("ipv6", "method", method_choices, "ignore")))));
             }
 
 
             if (con && con.Settings && con.Settings.connection)
                 return ($('<div class="panel panel-default">').
                         append($('<div class="panel-heading">').
-                               text(con.Settings.connection.id),
+                               append($('<span>').text(con.Settings.connection.id),
+                                      $('<button class="btn btn-default" style="display:inline;float:right">').
+                                      text("Apply").
+                                      click(apply_settings)),
                                $('<div class="panel-body">').
                                append(render_connection_settings(con.Settings.connection),
                                       $('<hr>'),
-                                      con.Settings.ipv4? render_ipv4_settings() : null,
+                                      render_ipv4_settings(),
                                       $('<hr>'),
-                                      render_ipv6_settings(con.Settings.ipv6),
+                                      render_ipv6_settings(),
                                       $('<hr>'),
-                                      $('<div>').text(JSON.stringify(con.Settings)))));
+                                      $('<div>').text(JSON.stringify(con.Settings)),
+                                      mod_box = $('<div>').text(JSON.stringify(mods)))));
 
             else
                 return [ ];
