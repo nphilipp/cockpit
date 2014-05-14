@@ -97,6 +97,15 @@ function NetworkManagerModel(address) {
                ];
     }
 
+    function translate_settings(settings) {
+        var result = $.extend(true, {}, settings);
+        if (result.ipv4)
+            result.ipv4.addresses = (result.ipv4.addresses || []).map(translate_ip4_address);
+        if (result.ipv6)
+            result.ipv6.addresses = (result.ipv6.addresses || []).map(translate_ip6_address);
+        return result;
+    }
+
     function device_state_to_text(state) {
         switch (state) {
             // NM_DEVICE_STATE_UNKNOWN
@@ -154,7 +163,7 @@ function NetworkManagerModel(address) {
             if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip6_address);
         } else if (iface == "org.freedesktop.NetworkManager.Settings.Connection") {
             if (props.Unsaved)    obj.Unsaved = props.Unsaved;
-            if (props.Settings)   obj.Settings = props.Settings;
+            if (props.Settings)   obj.Settings = translate_settings(props.Settings);
             if (!obj.update) {
                 obj.update = function (settings) {
                     var dfd = new $.Deferred();
@@ -497,6 +506,52 @@ PageNetworkInterface.prototype = {
                 return btn;
             }
 
+            function addr4box(first, second) {
+                set_default(first, second, []);
+
+                function add() {
+                    return function() {
+                        update_settings(first, second, settings[first][second].concat([[ "", 24, "" ]]));
+                        self.update();
+                    };
+                }
+
+                function remove(index) {
+                    return function () {
+                        mods[first][second].splice(index,1);
+                        update_settings(first, second, mods[first][second]);
+                        self.update();
+                    };
+                }
+
+                function change(index) {
+                    return function (event) {
+                        var div = $(event.target).parent('div');
+                        var addr = [ $(div).find("input:nth-child(1)").val(),
+                                     $(div).find("input:nth-child(2)").val(),
+                                     $(div).find("input:nth-child(3)").val()
+                                   ];
+                        mods[first][second][index] = addr;
+                        update_settings(first, second, mods[first][second]);
+                        self.update();
+                    };
+                }
+
+                return ($('<div>').
+                        append($('<button class="btn btn-default">').
+                               text(_("Add")).
+                               click(add()),
+                               settings[first][second].map(function (a, i) {
+                                   return ($('<div>').
+                                           append($('<input>').val(a[0]).change(change(i)),
+                                                  $('<input>').val(a[1]).change(change(i)),
+                                                  $('<input>').val(a[2]).change(change(i)),
+                                                  $('<button>').
+                                                  text(_("X")).
+                                                  click(remove(i))));
+                               })));
+            }
+
             function render_connection_settings() {
                 return ($('<table class="cockpit-form-table">').
                         append($('<tr>').
@@ -520,7 +575,10 @@ PageNetworkInterface.prototype = {
                                append($('<td class="header">').text(_("IPv4"))),
                                $('<tr>').
                                append($('<td>').text(_("Method")),
-                                      $('<td>').append(choicebox("ipv4", "method", method_choices, "disabled")))));
+                                      $('<td>').append(choicebox("ipv4", "method", method_choices, "disabled"))),
+                               $('<tr>').
+                               append($('<td>').text(_("Addresses")),
+                                      $('<td>').append(addr4box("ipv4", "addresses")))));
             }
 
             function render_ipv6_settings(ipv4) {
