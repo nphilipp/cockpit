@@ -67,7 +67,7 @@ function NetworkManagerModel(address) {
         return x;
     }
 
-    function net32_to_bytes(num) {
+    function bytes_from_nm32(num) {
         var bytes = [], i;
         if (client.byteorder == "be") {
             for (i = 3; i >= 0; i--) {
@@ -83,26 +83,71 @@ function NetworkManagerModel(address) {
         return bytes;
     }
 
-    function translate_ip4_address(addr) {
-        return [ net32_to_bytes(addr[0]).map(toDec).join('.'),
+    function bytes_to_nm32(bytes) {
+        var num = 0, i;
+        if (client.byteorder == "be") {
+            for (i = 0; i < 4; i++) {
+                num = 256*num + bytes[i];
+            }
+        } else {
+            for (i = 3; i >= 0; i--) {
+                num = 256*num + bytes[i];
+            }
+        }
+        return num;
+    }
+
+    function parse_ipv4(ip) {
+        var parts = ip.split('.');
+        if (parts.length == 4)
+            return parts.map(function(s) { return parseInt(s, 10); });
+        else
+            return [ 0, 0, 0, 0 ];
+    }
+
+    function ip4_from_nm(addr) {
+        return [ bytes_from_nm32(addr[0]).map(toDec).join('.'),
                  addr[1],
-                 net32_to_bytes(addr[2]).map(toDec).join('.')
+                 bytes_from_nm32(addr[2]).map(toDec).join('.')
                ];
     }
 
-    function translate_ip6_address(addr) {
+    function ip4_to_nm(addr) {
+        return [ bytes_to_nm32(parse_ipv4(addr[0])),
+                 parseInt(addr[1], 10),
+                 bytes_to_nm32(parse_ipv4(addr[2]))
+               ];
+    }
+
+    function ip6_from_nm(addr) {
         return [ addr[0].map(toHex).join(':'),
                  addr[1],
                  addr[2].map(toHex).join(':')
                ];
     }
 
-    function translate_settings(settings) {
+    function ip6_to_nm(addr) {
+        // XXX
+        return [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+    }
+
+
+    function settings_from_nm(settings) {
         var result = $.extend(true, {}, settings);
         if (result.ipv4)
-            result.ipv4.addresses = (result.ipv4.addresses || []).map(translate_ip4_address);
+            result.ipv4.addresses = (result.ipv4.addresses || []).map(ip4_from_nm);
         if (result.ipv6)
-            result.ipv6.addresses = (result.ipv6.addresses || []).map(translate_ip6_address);
+            result.ipv6.addresses = (result.ipv6.addresses || []).map(ip6_from_nm);
+        return result;
+    }
+
+    function settings_to_nm(settings) {
+        var result = $.extend(true, {}, settings);
+        if (result.ipv4)
+            result.ipv4.addresses = new DBusValue('aau', (result.ipv4.addresses || []).map(ip4_to_nm));
+        if (result.ipv6)
+            result.ipv6.addresses = (result.ipv6.addresses || []).map(ip6_to_nm);
+        console.log("S", JSON.stringify(result));
         return result;
     }
 
@@ -158,16 +203,18 @@ function NetworkManagerModel(address) {
             if (props.IdModel)    obj.IdModel = props.IdModel;
             if (props.Driver)     obj.Driver = props.Driver;
         } else if (iface == "org.freedesktop.NetworkManager.IP4Config") {
-            if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip4_address);
+            if (props.Addresses)  obj.Addresses = props.Addresses.map(ip4_from_nm);
         } else if (iface == "org.freedesktop.NetworkManager.IP6Config") {
-            if (props.Addresses)  obj.Addresses = props.Addresses.map(translate_ip6_address);
+            if (props.Addresses)  obj.Addresses = props.Addresses.map(ip6_from_nm);
         } else if (iface == "org.freedesktop.NetworkManager.Settings.Connection") {
             if (props.Unsaved)    obj.Unsaved = props.Unsaved;
-            if (props.Settings)   obj.Settings = translate_settings(props.Settings);
+            if (props.Settings)   obj.Settings = settings_from_nm(props.Settings);
             if (!obj.update) {
                 obj.update = function (settings) {
                     var dfd = new $.Deferred();
-                    client.get(path, iface).call('Update', settings,
+                    // XXX - validate
+                    var nm_settings = settings_to_nm(settings);
+                    client.get(path, iface).call('Update', nm_settings,
                                                  function (error) {
                                                      if (error) {
                                                          export_model();
@@ -455,11 +502,20 @@ PageNetworkInterface.prototype = {
 
             var mod_box;
 
-            function update_settings(first, second, val) {
+            function start_modify_settings(first, second) {
                 mods[first] = mods[first] || { };
-                mods[first][second] = val;
+                mods[first][second] = settings[first][second];
+            }
+
+            function finish_modify_settings() {
                 settings = $.extend(true, {}, con.Settings, mods);
                 $(mod_box).text(JSON.stringify(mods));
+            }
+
+            function modify_settings(first, second, val) {
+                start_modify_settings(first, second);
+                mods[first][second] = val;
+                finish_modify_settings();
             }
 
             function apply_settings() {
@@ -483,7 +539,7 @@ PageNetworkInterface.prototype = {
                 return ($('<input type="checkbox">').
                         prop('checked', settings[first][second]).
                         change(function (event) {
-                            update_settings(first, second, $(event.target).prop('checked'));
+                            modify_settings(first, second, $(event.target).prop('checked'));
                         }));
             }
 
@@ -492,14 +548,14 @@ PageNetworkInterface.prototype = {
                 return ($('<input>').
                         val(settings[first][second]).
                         change(function (event) {
-                            update_settings(first, second, $(event.target).val());
+                            modify_settings(first, second, $(event.target).val());
                         }));
             }
 
             function choicebox(first, second, choices, def) {
                 set_default(first, second, def);
                 var btn = cockpit_select_btn(function (choice) {
-                                                 update_settings(first, second, choice);
+                                                 modify_settings(first, second, choice);
                                              },
                                              choices);
                 cockpit_select_btn_select(btn, settings[first][second]);
@@ -511,15 +567,16 @@ PageNetworkInterface.prototype = {
 
                 function add() {
                     return function() {
-                        update_settings(first, second, settings[first][second].concat([[ "", 24, "" ]]));
+                        modify_settings(first, second, settings[first][second].concat([[ "", 24, "" ]]));
                         self.update();
                     };
                 }
 
                 function remove(index) {
                     return function () {
+                        start_modify_settings(first, second);
                         mods[first][second].splice(index,1);
-                        update_settings(first, second, mods[first][second]);
+                        finish_modify_settings();
                         self.update();
                     };
                 }
@@ -531,8 +588,9 @@ PageNetworkInterface.prototype = {
                                      $(div).find("input:nth-child(2)").val(),
                                      $(div).find("input:nth-child(3)").val()
                                    ];
+                        start_modify_settings(first, second);
                         mods[first][second][index] = addr;
-                        update_settings(first, second, mods[first][second]);
+                        finish_modify_settings();
                         self.update();
                     };
                 }
