@@ -38,11 +38,11 @@
 function NetworkManagerModel(address) {
     var self = this;
 
-    var client = $cockpit.dbus(address,
-                               { 'service': "org.freedesktop.NetworkManager",
-                                 'object-paths': [ "/org/freedesktop/NetworkManager" ],
-                                 'protocol': "dbus-json1"
-                               });
+    var client = cockpit.dbus(address,
+                              { 'service': "org.freedesktop.NetworkManager",
+                                'object-paths': [ "/org/freedesktop/NetworkManager" ],
+                                'protocol': "dbus-json1"
+                              });
 
     var objects = { };
 
@@ -273,7 +273,7 @@ function NetworkManagerModel(address) {
     }
 
     function refresh_udev(path, sysfs_path) {
-        $cockpit.spawn(["/usr/bin/udevadm", "info", sysfs_path], { host: address }).
+        cockpit.spawn(["/usr/bin/udevadm", "info", sysfs_path], { host: address }).
             done(function(res) {
                 var props = { };
                 function snarf_prop(line, env, prop) {
