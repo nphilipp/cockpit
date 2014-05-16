@@ -207,6 +207,7 @@ spawn_session_process (const gchar *user,
   else
     {
       pipe = g_object_new (COCKPIT_TYPE_PIPE,
+                           "name", "localhost",
                            "pid", pid,
                            "in-fd", out_fd,
                            "out-fd", in_fd,
@@ -673,6 +674,7 @@ cockpit_auth_start_session (CockpitAuth *self,
   if (!pipe)
     {
       pipe = g_object_new (COCKPIT_TYPE_PIPE,
+                           "name", "localhost",
                            "problem", "internal-error",
                            NULL);
     }
