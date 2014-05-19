@@ -117,6 +117,7 @@ install -p -m 644 cockpitselinux.pp %{buildroot}%{_datadir}/selinux/targeted/
 Summary: SELinux policy for Cockpit testing
 Requires: %{name} = %{version}-%{release}
 Requires: selinux-policy
+Requires: selinux-policy-targeted
 Requires(post): /usr/sbin/semodule, /sbin/restorecon, /sbin/fixfiles
 Requires(postun): /usr/sbin/semodule, /sbin/restorecon, /sbin/fixfiles
 
@@ -129,13 +130,13 @@ SELinux policy for Cockpit testing.
 
 %post selinux
 /usr/sbin/semodule -s targeted -i %{_datadir}/selinux/targeted/cockpitselinux.pp &> /dev/null || :
-/sbin/fixfiles -R cockpitselinux restore || :
+/sbin/fixfiles -R cockpit-selinux restore || :
 /sbin/restorecon -R %{_sharedstatedir}/%{name} || :
 
 %postun selinux
 if [ $1 -eq 0 ] ; then
   /usr/sbin/semodule -s targeted -r cockpitselinux &> /dev/null || :
-  /sbin/fixfiles -R cockpitselinux restore || :
+  /sbin/fixfiles -R cockpit-selinux restore || :
   [ -d %{_sharedstatedir}/%{name} ]  && \
     /sbin/restorecon -R %{_sharedstatedir}/%{name} &> /dev/null || :
 fi
