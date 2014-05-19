@@ -114,6 +114,14 @@ class Machine:
         finally:
             self.stop()
 
+    def run_selinux_relabel(self):
+        """Boot an image the first time which allows relabeling"""
+        self.start(maintain=True)
+        try:
+            self.wait_boot()
+        finally:
+            self.stop()
+
     def install(self, rpms):
         """Install rpms in the pre-built test image"""
         for rpm in rpms:
@@ -456,6 +464,7 @@ class QemuMachine(Machine):
 
         self.unpack_base(modify)
         self.run_setup_script(script, args)
+        self.run_selinux_relabel()
 
     def _lock_resource(self, resource, exclusive=True):
         resources = os.path.join(tempfile.gettempdir(), ".cockpit-test-resources")
@@ -533,8 +542,12 @@ class QemuMachine(Machine):
         else:
             conf = { }
 
-        snapshot = maintain and "off" or "on"
-        selinux = "enforcing=1"
+        if maintain:
+            snapshot = "off"
+            selinux = "enforcing=0"
+        else:
+            snapshot = "on"
+            selinux = ""
         self.macaddr = self._choose_macaddr(conf)
         cmd = [
             self._locate_qemu_kvm(),
@@ -791,5 +804,6 @@ set -euf
 rpm -U --force $TEST_PACKAGES
 
 rm -rf /var/log/journal/*
-echo 'SELINUX=enforcing' > /etc/sysconfig/selinux
+ln -sf ../selinux/config /etc/sysconfig/selinux
+echo 'SELINUX=enforcing' > /etc/selinux/config
 """
